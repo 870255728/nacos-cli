@@ -23,6 +23,8 @@ const defaultDescLimit = 200
 type Terminal struct {
 	client           *client.NacosClient
 	profileName      string
+	skillListHandler func([]string) error
+	skillGetHandler  func([]string, func(string) (string, error)) error
 	skillService     *skill.SkillService
 	agentSpecService *agentspec.AgentSpecService
 	rl               *readline.Instance
@@ -43,6 +45,16 @@ func NewTerminalWithProfile(nacosClient *client.NacosClient, profileName string)
 		agentSpecService: agentspec.NewAgentSpecService(nacosClient),
 		running:          true,
 	}
+}
+
+// SetSkillListHandler connects the terminal to the same command used outside the REPL.
+func (t *Terminal) SetSkillListHandler(handler func([]string) error) {
+	t.skillListHandler = handler
+}
+
+// SetSkillGetHandler shares source selection and download behavior with the CLI.
+func (t *Terminal) SetSkillGetHandler(handler func([]string, func(string) (string, error)) error) {
+	t.skillGetHandler = handler
 }
 
 // getPrompt returns the prompt string with user info
@@ -88,13 +100,13 @@ func interactiveCompletionSpecs() map[string]completionSpec {
 		"server": {},
 		"ns":     {},
 		"skill-list": {
-			Flags: []string{"--help", "-h", "--name", "--page", "--size", "--output"},
+			Flags: []string{"--help", "-h", "--hub", "--no-hub", "--name", "--page", "--size", "--output"},
 		},
 		"skill-describe": {
 			Flags: []string{"--help", "-h", "--output"},
 		},
 		"skill-get": {
-			Flags:     []string{"--help", "-h", "--version", "--label", "--output", "-o"},
+			Flags:     []string{"--help", "-h", "--version", "--label", "--output", "-o", "--hub", "--no-hub", "--non-interactive"},
 			PathFlags: pathFlags("--output", "-o"),
 		},
 		"skill-upload": {
@@ -448,6 +460,7 @@ func parseCommandArgs(input string) (cmd string, args []string) {
 			booleanFlags := map[string]bool{
 				"--help": true, "-h": true,
 				"--all": true,
+				"--hub": true, "--no-hub": true,
 			}
 
 			// If it's a long flag (--flag), check if value is separate
@@ -669,7 +682,7 @@ func (t *Terminal) showHelp() {
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-list", "List all skills", "skill-list [options]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Options: --name, --page, --size, --output", "")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-describe", "Show skill detail + versions", "skill-describe <name> [--output json]")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-get", "Download a skill to ~/.skills", "skill-get <name> [--version v1] [--label stable]")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-get", "Download by name or choose a Hub entry", "skill-get <name> [hubEntryId] [version] [-o dir]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-upload", "Upload a skill draft (editing)", "skill-upload <path>")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Upload all skills in directory", "skill-upload --all <folder>")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-review", "Submit a draft for review", "skill-review <name> [--version v1]")
@@ -815,6 +828,10 @@ func (t *Terminal) namespace(args []string) {
 	}
 
 	// Switch namespace
+	if args[0] == skill.SharedNamespaceID {
+		fmt.Println("Error: Hub is selected with skill-list --hub or skill-get <skillName> <hubEntryId>; keep the current business Namespace.")
+		return
+	}
 	oldNs := t.client.Namespace
 	t.client.Namespace = args[0]
 
@@ -823,6 +840,12 @@ func (t *Terminal) namespace(args []string) {
 
 // listSkills lists all skills
 func (t *Terminal) listSkills(args []string) {
+	if t.skillListHandler != nil {
+		if err := t.skillListHandler(args); err != nil {
+			fmt.Printf("\033[31mError:\033[0m %v\n", err)
+		}
+		return
+	}
 	// Parse flags
 	var name string
 	var page, size int = 1, 20
@@ -1046,6 +1069,20 @@ func termVersionSortKey(v skill.SkillVersionSummary) int64 {
 
 // getSkill downloads one or more skills
 func (t *Terminal) getSkill(args []string) {
+	if t.skillGetHandler != nil {
+		readSelection := func(prompt string) (string, error) {
+			if t.rl == nil {
+				return "", fmt.Errorf("interactive input is unavailable; specify a hubEntryId")
+			}
+			t.rl.SetPrompt(prompt)
+			defer t.rl.SetPrompt(t.getPrompt())
+			return t.rl.Readline()
+		}
+		if err := t.skillGetHandler(args, readSelection); err != nil {
+			fmt.Printf("\033[31mError:\033[0m %v\n", err)
+		}
+		return
+	}
 	if len(args) == 0 {
 		fmt.Println("\033[31mUsage:\033[0m skill-get <skillName> [skillName2...]")
 		return
@@ -1879,6 +1916,7 @@ func (t *Terminal) showAgentSpecPublishHelp() {
 
 // listAgentSpecs lists all agent specs
 func (t *Terminal) listAgentSpecs(args []string) {
+
 	// Parse flags
 	var name string
 	var page, size int = 1, 20

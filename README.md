@@ -14,6 +14,74 @@ A powerful command-line tool for managing Nacos configuration center and AI skil
 - 📦 Batch operations - upload all skills and agent specs at once
 - 🧾 Structured output - `--output json` on list/describe for scripting
 
+## Shared Skill discovery
+
+The existing `skill-list` command supports three sources: `namespace`, `hub`,
+and `all` (Namespace + Hub). Explicit command flags override the current profile's
+`source` setting; an unset setting defaults to `all`.
+`--hub` means **only Hub**; `--no-hub` means **only the current Namespace**.
+Supplying both flags is an error regardless of their order.
+
+```bash
+nacos-cli profile set team source=all
+nacos-cli profile switch team
+nacos-cli skill-list                      # Current profile's source mode
+nacos-cli skill-list --hub                # Only Hub
+nacos-cli skill-list --no-hub             # Only current Namespace
+nacos-cli skill-list --name review --output json
+nacos-cli skill-get find-skills                # Choose if multiple sources match
+nacos-cli skill-get find-skills 749            # Explicit Hub entry; version optional
+nacos-cli skill-get find-skills 749 -o ./downloads/hub-749
+```
+
+Profile YAML uses `source: namespace`, `source: hub`, or `source: all`.
+Use `profile get source` to inspect the effective preference and
+`profile set source=namespace` to keep existing Namespace-only workflows.
+Connection options such as `--host` do not override this preference.
+Earlier development profiles using `skillSource` remain readable; saving them writes
+only the canonical `source` field. The profile commands expose only `source`.
+
+Skill lists retain colored headings, names and status in both the interactive
+terminal and direct commands written to a terminal. `--output json` and redirected
+direct-command output remain free of ANSI color codes; `NO_COLOR` disables list colors. Changes to connection or authentication
+settings require leaving and restarting an already open terminal; source preferences
+are read again for each Skill list/get command.
+
+Both sources reuse `/v3/admin/ai/skills/list`; no new command or list endpoint is
+introduced. Namespace results keep their governance metadata, including draft and
+review versions. In `all` mode, sources are displayed separately, Namespace first;
+`--page` and `--size` apply independently to each source. JSON contains `source`,
+`namespace` and `hub`, each with its own page and count. Single-source JSON retains
+the existing `pageItems`/`totalCount`/`pageNo`/`pageSize`/`totalPages` structure.
+Equal display names remain distinct. Results include `discoverySource` and
+`namespaceId`; Hub results retain `hubEntryId`, display name, opaque download
+`name` and pinned `version`. A failed source fails the command without emitting
+partial results. The server's Hub switch remains authoritative; disabled Hub
+lists are empty. Servers without Hub support can be used with `--no-hub` or
+`source: namespace`; other request failures are reported.
+
+Shared downloads are explicit one-shot downloads of the pinned version. Their
+ZIP retains the Skill folder name, so the command reports the extraction output
+directory. They do not register the opaque shared ID in the ordinary name-only
+sync lock or enable automatic synchronization.
+
+`skill-get <name>` searches the Profile's selected sources by exact name. A unique
+match is downloaded directly. Duplicate names show source, author, shared version,
+and commands such as `skill-get find-skills 749`. In an interactive terminal, choose
+a candidate number, or press Enter to return and run one of those commands.
+Scripts can pass an entry ID directly; `--non-interactive` reports ambiguity without
+waiting for input. `--hub` and `--no-hub` override the Profile for downloads too.
+
+`skill-get <name> <hubEntryId> [version]` explicitly selects Hub, overriding the
+Profile preference. The second positive decimal argument is an entry ID; other
+multiple-name invocations retain batch download behavior. Hub has one current
+shared version, so version is optional; an explicit different version fails.
+The CLI sends the selected fixed version to the original download API. If sharing
+changes before download, it reports an error and asks for a fresh selection.
+The current business Namespace remains unchanged; users do not switch into the
+internal Hub Namespace. Different shares can contain the same package folder name;
+use separate `-o` directories when keeping them side by side.
+
 ## Installation
 
 ### Official Installer

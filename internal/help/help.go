@@ -17,8 +17,10 @@ type CommandHelp struct {
 var (
 	SkillList = CommandHelp{
 		Command:     "skill-list",
-		Description: "List all skills with governance info (latest/editing/reviewing/onlineCnt/enable/scope/owner/updateTime).",
+		Description: "List skills with governance info. Source priority: explicit flags > current Profile source > all (Namespace + Hub).",
 		Parameters: []string{
+			"--hub           Only Hub; overrides Profile (conflicts with --no-hub)",
+			"--no-hub        Only current Namespace; overrides Profile",
 			"--name string   Filter by skill name (supports wildcard *)",
 			"--page int      Page number (default: 1)",
 			"--size int      Page size (default: 20)",
@@ -27,6 +29,8 @@ var (
 		Examples: []string{
 			"# List all skills (human-readable, multi-line)",
 			"skill-list",
+			"skill-list --hub",
+			"skill-list --no-hub",
 			"",
 			"# Search by name",
 			"skill-list --name \"creator\"",
@@ -38,6 +42,8 @@ var (
 			"skill-list --output json",
 			"",
 			"Note:",
+			"  - Profile source: namespace | hub | all; unset defaults to all",
+			"  - Namespace and Hub results have independent pagination and counts",
 			"  - Every row shows latest/editing/reviewing version pointers and online count",
 			"  - For full version-level status (editing/reviewing/online/offline per version), use skill-describe",
 		},
@@ -45,16 +51,23 @@ var (
 
 	SkillGet = CommandHelp{
 		Command:     "skill-get",
-		Description: "Download a skill from Nacos to local directory via the Client Skill API.",
+		Description: "Download by name from the Profile's sources. Duplicate names prompt for selection. An optional hubEntryId selects a Hub share without changing Namespace; its sole shared version is the default.",
 		Parameters: []string{
 			"skillName...    Required. One or more skill names to download",
+			"skillName hubEntryId [version]  Select a Hub entry; version is optional",
 			"-o, --output    Output directory (default: ~/.skills)",
-			"--version       Specific version to download (e.g. v1, v2)",
-			"--label         Route label to resolve version (e.g. latest, stable)",
+			"--version       Namespace version; Hub accepts only its current shared version",
+			"--label         Namespace version label (Hub only accepts latest)",
+			"--hub / --no-hub  Override Profile source preference; mutually exclusive",
+			"--non-interactive  Report duplicate names without prompting",
 		},
 		Examples: []string{
 			"# Download the latest version of a skill",
 			"skill-get skill-creator",
+			"",
+			"# Select a shared entry; no Namespace switch or version required",
+			"skill-get find-skills 749",
+			"skill-get find-skills 749 -o ./downloads/hub-749",
 			"",
 			"# Download a specific version",
 			"skill-get skill-creator --version v2",
